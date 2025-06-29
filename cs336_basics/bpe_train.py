@@ -149,9 +149,10 @@ def to_bytes_tuple(word: str) -> Tuple[bytes]:
 
 
 def train_bpe(input_path, vocab_size: int, 
-              special_tokens: list[str], prefix: Optional[str]) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+              special_tokens: list[str], prefix: Optional[str]=None) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
         assert vocab_size >= 256 + len(special_tokens)
-        print(f'starting to train bpe with input_path: {input_path}, vocab_size: {vocab_size}, special_tokens: {special_tokens}, prefix: {prefix}')
+        if prefix is not None:
+            print(f'starting to train bpe with input_path: {input_path}, vocab_size: {vocab_size}, special_tokens: {special_tokens}, prefix: {prefix}')
         with open(input_path, "r") as f:
             text = f.read()
         chunks = re.split("|".join(map(re.escape, special_tokens)), text)
@@ -265,7 +266,8 @@ def train_bpe(input_path, vocab_size: int,
         #         if did_merge:
         #             symbols = new_symbols
         #     next_id = 256 + i
-        save_tokenizer_pickle(vocab=vocab, merges=merges, prefix=prefix)
+        if prefix is not None:
+            save_tokenizer_pickle(vocab=vocab, merges=merges, prefix=prefix)
         return vocab, merges
 
 

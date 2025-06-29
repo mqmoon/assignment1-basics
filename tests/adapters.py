@@ -20,7 +20,7 @@ from cs336_basics.Training.loss import run_cross_entropy_loss
 from cs336_basics.Training.optimizer import AdamW
 from cs336_basics.Training.lr_schedule import get_lr_cosine_schedule
 from cs336_basics.Training.gradient_clipping import clip_grad
-from cs336_basics import another_bpe
+from cs336_basics import another_bpe, tokenizer
 import cs336_basics.TrainingLoop.dataloader as dataloader
 from cs336_basics.TrainingLoop.checkpointing import load_checkpoint, save_checkpoint
 
@@ -633,7 +633,8 @@ def get_tokenizer(
     Returns:
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
-    raise NotImplementedError
+    # raise NotImplementedError
+    return tokenizer.Tokenizer(vocab=vocab, merges=merges, special_tokens=special_tokens)
 
 
 def run_train_bpe(

@@ -3,11 +3,14 @@ import time
 import argparse
 import torch
 import numpy as np
+import wandb
+import pprint
 
-from .checkpointing import load_checkpoint, save_checkpoint
-from .dataloader import get_batch
-from ..TransformerLMA.pre_norm_transformer_block import TransformerLM
-from ..Training.optimizer import AdamW
+from cs336_basics.TrainingLoop.checkpointing import load_checkpoint, save_checkpoint
+from cs336_basics.TrainingLoop.dataloader import get_batch
+from cs336_basics.TransformerLMA.pre_norm_transformer_block import TransformerLM
+from cs336_basics.Training.optimizer import AdamW
+from cs336_basics.Training.loss import run_cross_entropy_loss
 
 def get_args():
     parser = argparse.ArgumentParser(description='A comprehensive training script for a Transformer LM.')
@@ -19,16 +22,16 @@ def get_args():
 
     # Model Hyperparameters
     parser.add_argument('--context_length', type=int, default=256, help='Input sequence length.')
-    parser.add_argument('--vocab_size', type=int, default=50304, help='Vocabulary size (GPT-2 has 50257, but pad to multiple of 64 for performance).')
-    parser.add_argument('--n_layers', type=int, default=12, help='Number of transformer layers.')
-    parser.add_argument('--n_head', type=int, default=12, help='Number of attention heads.')
-    parser.add_argument('--d_model', type=int, default=768, help='LM\'s hidden size.')
-    parser.add_argument('--d_ff', type=int, help='FFN hidden size.')
+    parser.add_argument('--vocab_size', type=int, default=10000, help='Vocabulary size (GPT-2 has 50257, but pad to multiple of 64 for performance).')
+    parser.add_argument('--n_layers', type=int, default=4, help='Number of transformer layers.')
+    parser.add_argument('--n_head', type=int, default=16, help='Number of attention heads.')
+    parser.add_argument('--d_model', type=int, default=512, help='LM\'s hidden size.')
+    parser.add_argument('--d_ff', type=int, default=1344, help='FFN hidden size.')
     parser.add_argument('--rope_theta', type=int, help='RoPE theta value.')
 
     # Training Hyperparameters
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training.')
-    parser.add_argument('--max_iters', type=int, default=600000, help='Total number of training iterations.')
+    parser.add_argument('--max_iters', type=int, default=5000, help='Total number of training iterations.')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Maximum learning rate.')
     
     # Logging and Saving
@@ -51,7 +54,8 @@ def estimate_loss(model, train_data, val_data, args):
         for k in range(args.eval_iters):
             X, Y = get_batch(x=split_data, batch_size=args.batch_size, context_length=args.context_length,
                              device=args.device)
-            _, loss = model(X, Y)
+            logits = model(X, Y)
+            loss = run_cross_entropy_loss(logits=logits, targets=Y)
             losses[k] = loss.item()
         out[split_name] = losses.mean()
     model.train()
@@ -59,6 +63,13 @@ def estimate_loss(model, train_data, val_data, args):
 
 def main():
     args = get_args()
+    print("=" * 50)
+    print(" " * 15, "Training Configuration")
+    print("=" * 50)
+    # 使用 pprint 格式化打印
+    pprint.pprint(vars(args))
+    print("=" * 50 + "\n")
+    wandb.init(config=args)
 
     # --- Setup ---
     if args.device == 'auto':
@@ -110,14 +121,15 @@ def main():
             losses = estimate_loss(model, train_data, val_data, args)
             print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
             # Here you would also log to W&B if using it:
-            # wandb.log({'train_loss': losses['train'], 'val_loss': losses['val']})
+            wandb.log({'train_loss': losses['train'], 'val_loss': losses['val']})
 
         # --- Save Checkpoint periodically ---
         if iter_num % args.save_interval == 0:
             save_checkpoint(model, optimizer, iter_num, checkpoint_path)
 
         # --- Forward, Backward, Update ---
-        logits, loss = model(X, Y)
+        logits = model(X)
+        loss = run_cross_entropy_loss(logits=logits, targets=Y)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
