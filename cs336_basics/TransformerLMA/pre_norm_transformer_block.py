@@ -25,6 +25,14 @@ class RMSNorm(Module):
         return x.to(in_dtype)
 
 
+class SiLU(Module):
+    def __init__(self):
+        super().__init__()
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * torch.sigmoid(x)
+
+
 class SwiGLU(Module):
     def __init__(self, d_model: int, d_ff: int, device=None, dtype=None):
         super().__init__()

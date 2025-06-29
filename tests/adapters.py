@@ -14,7 +14,7 @@ from torch import Tensor
 from cs336_basics import bpe_train
 from cs336_basics.TransformerLMA.linear import Linear
 from cs336_basics.TransformerLMA.embedding import Embedding
-from cs336_basics.TransformerLMA.pre_norm_transformer_block import RMSNorm, SwiGLU, RoPE, SafeSoftmax, \
+from cs336_basics.TransformerLMA.pre_norm_transformer_block import SiLU, RMSNorm, SwiGLU, RoPE, SafeSoftmax, \
 ScaledDotProductAttention, MultiHeadSelfAttention, TransformerBlock, TransformerLM
 from cs336_basics.Training.loss import run_cross_entropy_loss
 from cs336_basics.Training.optimizer import AdamW
@@ -457,7 +457,9 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    # raise NotImplementedError
+    silu = SiLU()
+    return silu(in_features)
 
 
 def run_get_batch(
