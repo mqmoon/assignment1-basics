@@ -65,10 +65,34 @@ class RoPE(Module):
         self.register_buffer("cos_cache", freqs.cos(), persistent=False)
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        # print(token_positions.shape)
         cos = self.cos_cache[token_positions]
         sin = self.sin_cache[token_positions]
+        # print(self.cos_cache.shape)
+        # print(self.sin_cache.shape)
         x_even = x[..., 0::2]
         x_odd = x[..., 1::2]
+        # print(x_even.shape)
+        # print(x_odd.shape)
+
+        # 1. 计算 x_even 和 cos 之间的维度差异
+        #    x_even.ndim = 4, cos.ndim = 2, 所以 diff = 2
+        # diff = x_even.ndim - cos.ndim
+        # print(f'diff: {diff}')
+        # 2. 构造一个新的形状，在 cos 的前面加上 diff 个大小为 1 的维度
+        #    这会生成一个元组，例如 (1, 1, 256, 16)
+        # broadcast_shape = (1,) * diff + cos.shape
+        # print(f'broadcast_shape: {broadcast_shape}')
+        # 3. 使用 view() 或 reshape() 将 cos 和 sin 变为可广播的形状
+        # cos_broadcastable = cos.view(broadcast_shape)
+        # sin_broadcastable = sin.view(broadcast_shape)
+        # print(f'cos_broadcastable.shape: {cos_broadcastable.shape}')
+        # print(f'sin_broadcastable.shape: {sin_broadcastable.shape}')
+
+        # --- 现在乘法就可以安全地进行了 ---
+        # PyTorch 会自动将 [1, 1, 256, 16] 广播到 [32, 16, 256, 16]
+        # x_rotated_even = x_even * cos_broadcastable - x_odd * sin_broadcastable
+        # x_rotated_odd  = x_odd  * cos_broadcastable + x_even * sin_broadcastable
         x_rotated_even = x_even * cos - x_odd * sin
         x_rotated_odd = x_even * sin + x_odd * cos
         x_rotated = torch.empty_like(x)
@@ -164,7 +188,7 @@ class TransformerBlock(Module):
     def forward(self, x: torch.Tensor):
         residual = x
         x = self.ln1(x)
-        token_positions = torch.arange(x.shape[-2]).expand(x.shape[0], -1)
+        token_positions = torch.arange(x.shape[-2])
         x = self.attn(x, token_positions)
         x = x + residual
         residual = x
@@ -200,3 +224,82 @@ class TransformerLM(Module):
         x = self.ln_final(x)
         logits = self.lm_head(x)
         return logits
+
+
+@torch.no_grad()
+def generate(model: torch.nn.Module, 
+             prompt_tokens: torch.Tensor, 
+             max_new_tokens: int, 
+             temperature: float = 1.0, 
+             top_p: float = 1.0,
+             end_of_text_token: int =  256):
+    """
+    Generates text completions from a model given a prompt.
+
+    Args:
+        model (nn.Module): The language model.
+        prompt_tokens (torch.Tensor): A tensor of shape (B, T) with prompt token IDs.
+        max_new_tokens (int): The maximum number of new tokens to generate.
+        temperature (float): Controls randomness. Higher values ( > 1.0) make output more random,
+                             lower values ( < 1.0) make it more deterministic. 1.0 is neutral.
+        top_p (float): Nucleus sampling threshold. Keeps the smallest set of tokens whose
+                       cumulative probability is >= top_p. 1.0 disables it.
+        end_of_text_token (int): The token ID that signals the end of a sequence.
+
+    Returns:
+        torch.Tensor: The generated sequence of token IDs, including the prompt.
+    """
+    model.eval() # Set the model to evaluation mode
+    # The sequence to be generated, starting with the prompt
+    idx = prompt_tokens
+    for _ in range(max_new_tokens):
+        # --- Step 1: Prepare the input ---
+        # If the sequence gets too long, crop it to the model's context length
+        context_length = model.context_length
+        idx_cond = idx if idx.size(1) <= context_length else idx[:, -context_length:]
+        # --- Step 2: Forward pass to get logits ---
+        logits, _ = model(idx_cond)
+        # --- Step 3: Focus on the last logit (prediction for the next token) ---
+        logits = logits[:, -1, :]  # Becomes (B, C)
+        # --- Step 4: Apply temperature scaling ---
+        if temperature <= 0: # Handle temperature=0 as greedy sampling
+            temperature = 1.0 # Avoid division by zero, logic below handles it
+            probs = torch.zeros_like(logits)
+            probs.scatter_(1, torch.argmax(logits, dim=-1, keepdim=True), 1)
+        else:
+            logits = logits / temperature
+            # --- Step 5: Apply softmax to get probabilities ---
+            softmax = SafeSoftmax(dim=-1)
+            probs = softmax(logits) # (B, C)
+        # --- Step 6: Apply Top-p (nucleus) sampling ---
+        # This part is only active if top_p is less than 1.0
+        if top_p < 1.0 and temperature > 0:
+            # Sort probabilities in descending order
+            probs_sorted, indices_sorted = torch.sort(probs, descending=True, dim=-1)
+            # Calculate cumulative probabilities
+            cumulative_probs = torch.cumsum(probs_sorted, dim=-1)            
+            # Create a mask for tokens to remove (those that are not in the nucleus)
+            # Find the first index where cumulative probability exceeds top_p
+            indices_to_remove = cumulative_probs > top_p
+            # Shift the mask to the right to keep the first token that exceeds the threshold
+            indices_to_remove[..., 1:] = indices_to_remove[..., :-1].clone()
+            indices_to_remove[..., 0] = 0 # Never remove the most likely token
+            # Create a mask for the original unsorted probabilities
+            # We scatter `True` to the indices that should be removed
+            remove_mask = torch.zeros_like(probs, dtype=torch.bool).scatter_(
+                dim=-1, index=indices_sorted, src=indices_to_remove
+            )
+            # Set the probability of removed tokens to 0
+            probs[remove_mask] = 0           
+            # Re-normalize the probabilities so they sum to 1 again
+            # Add a small epsilon to avoid division by zero in case all probabilities become zero
+            probs = probs / (torch.sum(probs, dim=-1, keepdim=True) + 1e-9)
+        # --- Step 7: Sample from the final probability distribution ---
+        idx_next = torch.multinomial(probs, num_samples=1) # (B, 1)
+        # --- Step 8: Append the new token and check for end-of-text ---
+        if idx_next.item() == end_of_text_token:
+            break # Stop if end-of-text token is generated
+        idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
+
+    model.train() # Set model back to training mode
+    return idx

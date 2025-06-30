@@ -15,8 +15,8 @@ from cs336_basics.Training.loss import run_cross_entropy_loss
 def get_args():
     parser = argparse.ArgumentParser(description='A comprehensive training script for a Transformer LM.')
     # Data and Paths
-    parser.add_argument('--train_data_path', type=str, default='train.npy', help='Path to memory-mapped training data (.npy)')
-    parser.add_argument('--val_data_path', type=str, default='val.npy', help='Path to memory-mapped validation data (.npy)')
+    parser.add_argument('--train_data_path', type=str, default='data/TinyStoriesV2-GPT4-train.npy', help='Path to memory-mapped training data (.npy)')
+    parser.add_argument('--val_data_path', type=str, default='data/TinyStoriesV2-GPT4-valid.npy', help='Path to memory-mapped validation data (.npy)')
     parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help='Directory to save checkpoints.')
     parser.add_argument('--checkpoint_name', type=str, default='ckpt.pth', help='Name of the checkpoint file.')
 
@@ -27,7 +27,7 @@ def get_args():
     parser.add_argument('--n_head', type=int, default=16, help='Number of attention heads.')
     parser.add_argument('--d_model', type=int, default=512, help='LM\'s hidden size.')
     parser.add_argument('--d_ff', type=int, default=1344, help='FFN hidden size.')
-    parser.add_argument('--rope_theta', type=int, help='RoPE theta value.')
+    parser.add_argument('--rope_theta', type=int, default=10000, help='RoPE theta value.')
 
     # Training Hyperparameters
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training.')
@@ -35,8 +35,8 @@ def get_args():
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Maximum learning rate.')
     
     # Logging and Saving
-    parser.add_argument('--eval_interval', type=int, default=500, help='How often to evaluate on validation set.')
-    parser.add_argument('--save_interval', type=int, default=2000, help='How often to save a checkpoint.')
+    parser.add_argument('--eval_interval', type=int, default=250, help='How often to evaluate on validation set.')
+    parser.add_argument('--save_interval', type=int, default=500, help='How often to save a checkpoint.')
     parser.add_argument('--eval_iters', type=int, default=200, help='Number of batches to average for evaluation loss.')
 
     # System
@@ -54,7 +54,7 @@ def estimate_loss(model, train_data, val_data, args):
         for k in range(args.eval_iters):
             X, Y = get_batch(x=split_data, batch_size=args.batch_size, context_length=args.context_length,
                              device=args.device)
-            logits = model(X, Y)
+            logits = model(X)
             loss = run_cross_entropy_loss(logits=logits, targets=Y)
             losses[k] = loss.item()
         out[split_name] = losses.mean()
@@ -69,7 +69,7 @@ def main():
     # 使用 pprint 格式化打印
     pprint.pprint(vars(args))
     print("=" * 50 + "\n")
-    wandb.init(config=args)
+    wandb.init(config=args, mode='offline')
 
     # --- Setup ---
     if args.device == 'auto':

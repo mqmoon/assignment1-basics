@@ -2,6 +2,8 @@ from typing import Iterable, Iterator
 import regex as re
 import pickle
 import time
+import numpy as np
+from cs336_basics.bpe_train import load_tokenizer_pickle
 
 def get_pairs(ids: list[bytes]) -> set:
     """Helper function to find all adjacent pairs of tokens in a list."""
@@ -143,17 +145,29 @@ class Tokenizer:
         # self.special_token_pattern = f"({ '|'.join(escaped_tokens) })"
     
 if __name__ == "__main__":
-    prefix = 'owt_valid'
+    # prefix = 'owt_valid'
+    prefix = 'TinyStoriesV2-GPT4-train'
     vocab_file = f"{prefix}_vocab.pkl"
     merges_file = f"{prefix}_merges.pkl"
+    # vocab, merge = load_tokenizer_pickle(prefix)
+    # print(vocab[256])
+    # exit()
     special_tokens = ['<|endoftext|>']
     tokenizer = Tokenizer.from_files(vocab_filepath=vocab_file, merges_filepath=merges_file, special_tokens=special_tokens)
     # print(len(tokenizer.vocab))
     # print(len(tokenizer.merges))
     # print(tokenizer.special_tokens)
-    with open ('data/owt_valid.txt', 'r', encoding='utf-8') as f:
+    with open (f'data/{prefix}.txt', 'r', encoding='utf-8') as f:
         text = f.read()
+    time1 = time.time()
     encode_results = tokenizer.encode(text=text)
-    print(text)
+    array = np.array(encode_results, dtype=np.uint16)
+    np.save(f'data/{prefix}.npy', array)
+    time2 = time.time()
+
+    # print(text)
     print(encode_results)
-    print(tokenizer.decode(encode_results))
+    print(len(encode_results))
+    print(f'encode got tokens: {len(encode_results)}')
+    print(f'time consumed: {time2 - time1} s.')
+    # print(tokenizer.decode(encode_results))
