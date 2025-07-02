@@ -1,5 +1,4 @@
 import math
-from typing import Callable
 
 def get_lr_cosine_schedule(t: int, alpha_max: float, alpha_min: float, 
                            Tw: int, Tc: int) -> float:

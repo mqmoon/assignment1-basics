@@ -12,7 +12,7 @@ def clip_grad(parameters: Iterable[nn.Parameter], max_norm: float, eps: float = 
     if grad_norm < max_norm:
         return
     else:
-        clip_rate =  max_norm / (grad_norm - eps)
+        clip_rate =  max_norm / (grad_norm + eps)
         
         for g in grads:
             g.detach().mul_(clip_rate)
